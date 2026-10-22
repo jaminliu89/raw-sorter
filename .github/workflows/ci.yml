@@ -1,0 +1,47 @@
+name: macOS build and test
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: 安装 DMG 构建工具（不属于应用运行依赖）
+        run: |
+          python3 -m venv work/package-env
+          work/package-env/bin/pip install dmgbuild==1.6.7
+      - name: 测试、构建、隔离冒烟和打包
+        run: DMGBUILD="$PWD/work/package-env/bin/dmgbuild" bash scripts/release.sh
+      - name: 上传安装包
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: RAW-Sorter-macOS-arm64
+          path: dist/
+          if-no-files-found: error
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: RAW-Sorter-macOS-arm64
+          path: dist/
+      - name: 发布版本
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "${GITHUB_REF_NAME#v}" = "$(cat VERSION)"
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "RAW 汇集 $GITHUB_REF_NAME" --notes-file docs/RELEASE_NOTES.md
